@@ -16,14 +16,18 @@
 
 package com.example.android.todolist;
 
+import android.arch.lifecycle.Observer;
+import android.arch.lifecycle.ViewModelProviders;
 import android.content.Intent;
 import android.os.Bundle;
+import android.support.annotation.Nullable;
 import android.support.design.widget.FloatingActionButton;
 import android.support.v7.app.AppCompatActivity;
 import android.support.v7.widget.DividerItemDecoration;
 import android.support.v7.widget.LinearLayoutManager;
 import android.support.v7.widget.RecyclerView;
 import android.support.v7.widget.helper.ItemTouchHelper;
+import android.util.Log;
 import android.view.View;
 
 import com.example.android.todolist.database.AppDatabase;
@@ -76,8 +80,16 @@ public class MainActivity extends AppCompatActivity implements TaskAdapter.ItemC
 
             // Called when a user swipes left or right on a ViewHolder
             @Override
-            public void onSwiped(RecyclerView.ViewHolder viewHolder, int swipeDir) {
+            public void onSwiped(final RecyclerView.ViewHolder viewHolder, int swipeDir) {
                 // Here is where you'll implement swipe to delete
+                AppExecutors.getInstance().diskIO().execute(new Runnable() {
+                    @Override
+                    public void run() {
+                        int position = viewHolder.getAdapterPosition();
+                        List<TaskEntry> tasks = mAdapter.getTasks();
+                        mDb.taskDao().deleteTask(tasks.get(position));
+                    }
+                });
             }
         }).attachToRecyclerView(mRecyclerView);
 
@@ -98,33 +110,20 @@ public class MainActivity extends AppCompatActivity implements TaskAdapter.ItemC
         });
 
         mDb = AppDatabase.getInstance(getApplicationContext());
+        setupViewModel();
     }
 
-    /**
-     * This method is called after this activity has been paused or restarted.
-     * Often, this is after new data has been inserted through an AddTaskActivity,
-     * so this re-queries the database data for any changes.
-     */
-    @Override
-    protected void onResume() {
-        super.onResume();
-        // COMPLETED (5) Get the diskIO Executor from the instance of AppExecutors and
-        // call the diskIO execute method with a new Runnable and implement its run method
-        AppExecutors.getInstance().diskIO().execute(new Runnable() {
+    // COMPLETED (8) This method is not retrieving the tasks any more. Refactor to a more suitable name such as setupViewModel
+    private void setupViewModel() {
+        // COMPLETED (5) Remove the logging and the call to loadAllTasks, this is done in the ViewModel now
+        // COMPLETED (6) Declare a ViewModel variable and initialize it by calling ViewModelProviders.of
+        MainViewModel viewModel = ViewModelProviders.of(this).get(MainViewModel.class);
+        // COMPLETED (7) Observe the LiveData object in the ViewModel
+        viewModel.getTasks().observe(this, new Observer<List<TaskEntry>>() {
             @Override
-            public void run() {
-                // COMPLETED (6) Move the logic into the run method and
-                // Extract the list of tasks to a final variable
-                final List<TaskEntry> tasks = mDb.taskDao().loadAllTasks();
-                // COMPLETED (7) Wrap the setTask call in a call to runOnUiThread
-                // We will be able to simplify this once we learn more
-                // about Android Architecture Components
-                runOnUiThread(new Runnable() {
-                    @Override
-                    public void run() {
-                        mAdapter.setTasks(tasks);
-                    }
-                });
+            public void onChanged(@Nullable List<TaskEntry> taskEntries) {
+                Log.d(TAG, "Updating list of tasks from LiveData in ViewModel");
+                mAdapter.setTasks(taskEntries);
             }
         });
     }
@@ -132,5 +131,8 @@ public class MainActivity extends AppCompatActivity implements TaskAdapter.ItemC
     @Override
     public void onItemClickListener(int itemId) {
         // Launch AddTaskActivity adding the itemId as an extra in the intent
+        Intent intent = new Intent(MainActivity.this, AddTaskActivity.class);
+        intent.putExtra(AddTaskActivity.EXTRA_TASK_ID, itemId);
+        startActivity(intent);
     }
 }

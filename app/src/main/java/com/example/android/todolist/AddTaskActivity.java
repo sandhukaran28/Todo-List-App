@@ -16,9 +16,13 @@
 
 package com.example.android.todolist;
 
+import android.arch.lifecycle.LiveData;
+import android.arch.lifecycle.Observer;
 import android.content.Intent;
 import android.os.Bundle;
+import android.support.annotation.Nullable;
 import android.support.v7.app.AppCompatActivity;
+import android.util.Log;
 import android.view.View;
 import android.widget.Button;
 import android.widget.EditText;
@@ -71,6 +75,18 @@ public class AddTaskActivity extends AppCompatActivity {
             mButton.setText(R.string.update_button);
             if (mTaskId == DEFAULT_TASK_ID) {
                 // populate the UI
+                mTaskId = intent.getIntExtra(EXTRA_TASK_ID, DEFAULT_TASK_ID);
+
+                Log.d(TAG, "Actively retrieving a specific task from the DataBase");
+                final LiveData<TaskEntry> task = mDb.taskDao().loadTaskById(mTaskId);
+                task.observe(this, new Observer<TaskEntry>() {
+                    @Override
+                    public void onChanged(@Nullable TaskEntry taskEntry) {
+                        task.removeObserver(this);
+                        Log.d(TAG, "Receiving database update from LiveData");
+                        populateUI(taskEntry);
+                    }
+                });
             }
         }
     }
@@ -103,7 +119,12 @@ public class AddTaskActivity extends AppCompatActivity {
      * @param task the taskEntry to populate the UI
      */
     private void populateUI(TaskEntry task) {
+        if (task == null) {
+            return;
+        }
 
+        mEditText.setText(task.getDescription());
+        setPriorityInViews(task.getPriority());
     }
 
     /**
@@ -115,15 +136,18 @@ public class AddTaskActivity extends AppCompatActivity {
         int priority = getPriorityFromViews();
         Date date = new Date();
 
-        // COMPLETED (4) Make taskEntry final so it is visible inside the run method
-        final TaskEntry taskEntry = new TaskEntry(description, priority, date);
-        // COMPLETED (2) Get the diskIO Executor from the instance of AppExecutors and
-        // call the diskIO execute method with a new Runnable and implement its run method
+        final TaskEntry task = new TaskEntry(description, priority, date);
         AppExecutors.getInstance().diskIO().execute(new Runnable() {
             @Override
             public void run() {
-                // COMPLETED (3) Move the remaining logic inside the run method
-                mDb.taskDao().insertTask(taskEntry);
+                if (mTaskId == DEFAULT_TASK_ID) {
+                    // insert new task
+                    mDb.taskDao().insertTask(task);
+                } else {
+                    //update task
+                    task.setId(mTaskId);
+                    mDb.taskDao().updateTask(task);
+                }
                 finish();
             }
         });
